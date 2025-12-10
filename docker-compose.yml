@@ -1,0 +1,48 @@
+version: '3'
+services:
+  # 1. IL BROKER MQTT (Edge Layer)
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    ports:
+      - "1883:1883"     # Porta per il tuo script Python
+      - "9001:9001"     # Porta Web (utile per debug)
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+    networks:
+      - digital-twin-net
+
+  # 2. KAFKA (Ingestion Layer) - Usiamo Redpanda (compatibile Kafka, più leggero)
+  kafka:
+    image: docker.io/redpandadata/console:latest
+    container_name: kafka-console
+    depends_on:
+      - redpanda
+    ports:
+      - "8080:8080" # UI Web per vedere i messaggi Kafka
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    networks:
+      - digital-twin-net
+
+  redpanda:
+    image: docker.io/redpandadata/redpanda:latest
+    container_name: kafka-broker
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --check=false
+      - --kafka-addr PLAIN://0.0.0.0:9092,OUTSIDE://0.0.0.0:29092
+      - --advertise-kafka-addr PLAIN://redpanda:9092,OUTSIDE://localhost:29092
+    ports:
+      - "29092:29092" # Porta per connetterci da fuori se serve
+    networks:
+      - digital-twin-net
+
+networks:
+  digital-twin-net:
+    driver: bridge
