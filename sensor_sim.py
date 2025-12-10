@@ -34,6 +34,15 @@ print("Per simulare un incidente, cambieremo la velocità dinamicamente.\n")
 
 try:
     while True:
+
+        with open("command.txt", "r") as f:
+            cmd = f.read().strip()
+    
+        if cmd == "CRASH":
+            is_accident = True
+        else:
+            is_accident = False
+        
         # 1. Logica di Simulazione
         if not is_accident:
             # Traffico normale: oscilla tra 40 e 60 km/h
@@ -73,4 +82,5 @@ except KeyboardInterrupt:
     # O semplicemente chiudi.
     print("\n🛑 Simulazione interrotta.")
     client.loop_stop()
+
     client.disconnect()
