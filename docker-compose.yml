@@ -42,6 +42,18 @@ services:
       - "29092:29092" # Porta per connetterci da fuori se serve
     networks:
       - digital-twin-net
+      
+  dashboard:
+    build: ./dashboard      # Costruisce l'immagine dalla cartella dashboard
+    container_name: dashboard-service
+    ports:
+      - "3000:3000"         # Espone la porta Web all'esterno
+    environment:
+      - KAFKA_BROKER=redpanda:9092  # Dice a Node di usare l'indirizzo interno
+    depends_on:
+      - redpanda            # Aspetta che Kafka sia pronto
+    networks:
+      - digital-twin-net
 
 networks:
   digital-twin-net:

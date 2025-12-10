@@ -1,0 +1,20 @@
+# Usiamo l'immagine slim (Debian-based) per evitare problemi di compatibilità
+FROM node:18-slim
+
+# Creiamo la cartella di lavoro nel container
+WORKDIR /app
+
+# 1. Copiamo il file che hai appena creato a mano
+COPY package.json ./
+
+# 2. Ora Docker ha il file e può scaricare le librerie DENTRO il container
+RUN npm install
+
+# 3. Copiamo il resto (server.js, index.html, ecc.)
+COPY . .
+
+# Esponiamo la porta
+EXPOSE 3000
+
+# Avvio
+CMD ["node", "server.js"]

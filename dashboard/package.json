@@ -1,0 +1,13 @@
+{
+  "name": "dashboard-service",
+  "version": "1.0.0",
+  "description": "Dashboard WebSocket per Digital Twin",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "socket.io": "^4.7.2"
+  }
+}
