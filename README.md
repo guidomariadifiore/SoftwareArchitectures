@@ -9,7 +9,6 @@ How to use:
 
 3) Starting the infrastructure
 1. Start the Docker Desktop application, open the terminal in the project root folder and run docker-compose up -d --build
-1. After a few seconds verify that the containers are all active by running docker ps (you should see mosquitto, kafka-broker, kafka-console, dashboard-service)
 
 4) Open the webpage that tracks alerts
 1. Open file dashboard/index.html
