@@ -1,7 +1,7 @@
 ﻿import json
 from kafka import KafkaConsumer, KafkaProducer
 
-# --- CONFIG ---
+# --- CONFIGURATION ---
 KAFKA_BROKER = "localhost:29092"
 INPUT_TOPIC = "raw-traffic"
 OUTPUT_TOPIC = "alerts"
@@ -20,53 +20,56 @@ producer = KafkaProducer(
 )
 
 # --- STATE MEMORY ---
-# Here we save the last known status of each sensor..
-# Example: { ‘S-101’: “FLOWING”, ‘S-102’: ‘BLOCKED’ }
+# Stores the last known status of each sensor.
 sensor_states = {}
 
-print(f"🕵️ [SMART DETECTOR] Listening to '{INPUT_TOPIC}' with status management...")
+print(f"🕵️ [SMART DETECTOR] Listening on '{INPUT_TOPIC}' with state management...")
 
 # --- MAIN LOOP ---
 for message in consumer:
     data = message.value
     sensor_id = data["sensor_id"]
-    current_status = data.get("status", "FLOWING") # Default FLOWING if the field is missing
     
-    # We restore the previous state (if it does not exist, we assume it was FLOWING).
+    # We rely on the Gateway's calculation of "status" which is now based on speed
+    current_status = data.get("status", "FLOWING")
+    
+    # Retrieve previous status (Default to FLOWING if new sensor)
     previous_status = sensor_states.get(sensor_id, "FLOWING")
     
-    # TRANSITION LOGIC (EDGE DETECTION)
+    # --- EDGE DETECTION LOGIC ---
     
-    # CASE 1: Start of accident (From FLOWING to BLOCKED)
+    # CASE 1: Incident Starts (FLOWING -> BLOCKED)
+    # This will now only trigger when speed actually drops below 5.0 km/h
     if current_status == "BLOCKED" and previous_status == "FLOWING":
         
         alert_payload = {
             "type": "TRAFFIC_JAM_STARTED",
             "sensor_id": sensor_id,
             "severity": "HIGH",
-            "message": f"🔴 START OF BLOCK: Traffic detected as stationary ({data['speed_kmh']} km/h)",
+            "message": f"🔴 BLOCKAGE STARTED: Traffic stoppage detected ({data['speed_kmh']} km/h)",
             "timestamp": data["timestamp"]
         }
         producer.send(OUTPUT_TOPIC, alert_payload)
-        print(f"🚨 [ALERT START] New accident on {sensor_id}!")
+        print(f"🚨 [ALERT START] Incident detected on {sensor_id}!")
 
-    # CASE 2: End of Accident (From BLOCKED to FLOWING)
+    # CASE 2: Incident Resolved (BLOCKED -> FLOWING)
+    # This will trigger only when speed climbs back above 5.0 km/h
     elif current_status == "FLOWING" and previous_status == "BLOCKED":
         
         alert_payload = {
             "type": "TRAFFIC_JAM_RESOLVED",
             "sensor_id": sensor_id,
             "severity": "INFO",
-            "message": f"🟢 SOLVED: Traffic has resumed flowing ({data['speed_kmh']} km/h)",
+            "message": f"🟢 RESOLVED: Traffic is flowing again ({data['speed_kmh']} km/h)",
             "timestamp": data["timestamp"]
         }
         producer.send(OUTPUT_TOPIC, alert_payload)
-        print(f"✅ [ALERT END] Accident resolved on {sensor_id}.")
+        print(f"✅ [ALERT END] Incident resolved on {sensor_id}.")
 
-    # CASE 3: No change (BLOCKED->BLOCKED or FLOWING->FLOWING)
+    # CASE 3: No State Change
     else:
-        # Let's not do anything to avoid spamming the topic alerts
+        # Do nothing to avoid spamming
         pass
 
-    # Let's update the memory with the current status for the next round
+    # Update memory for next iteration
     sensor_states[sensor_id] = current_status
