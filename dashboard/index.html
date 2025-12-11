@@ -35,13 +35,13 @@
 </head>
 <body>
 
-    <h1>🏙️ Controllo Traffico Cittadino</h1>
+    <h1>🏙️ City Traffic Control</h1>
 
     <div id="status-card" class="normal">
         <span id="icon">✅</span>
-        <h2 id="title">Tutto Tranquillo</h2>
-        <p id="message">Il traffico scorre regolarmente nel Distretto 1.</p>
-        <p id="timestamp">In attesa di dati...</p>
+        <h2 id="title">All is quiet</h2>
+        <p id="message">Traffic is flowing smoothly in District 1..</p>
+        <p id="timestamp">Awaiting data...</p>
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
@@ -55,28 +55,28 @@
         const time = document.getElementById('timestamp');
 
         socket.on('connect', () => {
-            console.log("Connesso al Server WebSocket!");
+            console.log("Connected to the WebSocket Server!");
         });
 
         // ASCOLTO DEGLI EVENTI DAL SERVER
         socket.on('alert', (data) => {
-            console.log("Alert ricevuto:", data);
+            console.log("Alert received:", data);
             
             if (data.type === 'TRAFFIC_JAM_STARTED') {
                 // TRASFORMAZIONE IN ALLARME
                 card.className = 'critical';
                 icon.innerText = '🚨';
-                title.innerText = 'INCIDENTE RILEVATO';
+                title.innerText = 'ACCIDENT DETECTED';
                 msg.innerText = data.message;
-                time.innerText = 'Rilevato alle: ' + data.timestamp;
+                time.innerText = 'Detected at: ' + data.timestamp;
             } 
             else if (data.type === 'TRAFFIC_JAM_RESOLVED') {
                 // RITORNO ALLA NORMALITA'
                 card.className = 'normal';
                 icon.innerText = '✅';
-                title.innerText = 'Problema Risolto';
+                title.innerText = 'Problem Solved';
                 msg.innerText = data.message;
-                time.innerText = 'Risolto alle: ' + data.timestamp;
+                time.innerText = 'Solved at: ' + data.timestamp;
             }
         });
     </script>

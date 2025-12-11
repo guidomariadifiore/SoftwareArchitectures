@@ -1,7 +1,7 @@
 {
   "name": "dashboard-service",
   "version": "1.0.0",
-  "description": "Dashboard WebSocket per Digital Twin",
+  "description": "Dashboard WebSocket for Digital Twin",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

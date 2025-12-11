@@ -1,20 +1,20 @@
-# Usiamo l'immagine slim (Debian-based) per evitare problemi di compatibilità
+# We use the slim image (Debian-based) to avoid compatibility issues.
 FROM node:18-slim
 
-# Creiamo la cartella di lavoro nel container
+# Create the workdir in the container
 WORKDIR /app
 
-# 1. Copiamo il file che hai appena creato a mano
+#1. Copy the package file created manually.
 COPY package.json ./
 
-# 2. Ora Docker ha il file e può scaricare le librerie DENTRO il container
+# 2. Now Docker has the file and can download the libraries inside the container.
 RUN npm install
 
-# 3. Copiamo il resto (server.js, index.html, ecc.)
+# 3. Copy the rest (server.js, index.html, etc.)
 COPY . .
 
-# Esponiamo la porta
+# Let's expose the door
 EXPOSE 3000
 
-# Avvio
+# Start
 CMD ["node", "server.js"]

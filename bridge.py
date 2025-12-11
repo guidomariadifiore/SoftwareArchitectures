@@ -3,10 +3,10 @@ import time
 import paho.mqtt.client as mqtt
 from kafka import KafkaProducer
 
-# --- CONFIGURAZIONE ---
+# --- CONFIGURATION ---
 MQTT_BROKER = "localhost"
 MQTT_TOPIC = "raw-traffic"
-KAFKA_BROKER = "localhost:29092" # Porta esterna di Redpanda/Kafka
+KAFKA_BROKER = "localhost:29092" # Redpanda/Kafka external door
 KAFKA_TOPIC = "raw-traffic"
 
 # --- SETUP KAFKA PRODUCER ---
@@ -15,31 +15,31 @@ try:
         bootstrap_servers=KAFKA_BROKER,
         value_serializer=lambda v: json.dumps(v).encode('utf-8')
     )
-    print(f"✅ [BRIDGE] Connesso a Kafka su {KAFKA_BROKER}")
+    print(f"✅ [BRIDGE] Connected to Kafka on {KAFKA_BROKER}")
 except Exception as e:
-    print(f"❌ [BRIDGE] Errore connessione Kafka: {e}")
+    print(f"❌ [BRIDGE] Kafka connection error: {e}")
     exit(1)
 
 # --- CALLBACKS MQTT ---
 def on_connect(client, userdata, flags, rc):
-    print(f"✅ [BRIDGE] Connesso a Mosquitto. In ascolto su '{MQTT_TOPIC}'...")
+    print(f"✅ [BRIDGE] Connected to Mosquitto. Listening on '{MQTT_TOPIC}'...")
     client.subscribe(MQTT_TOPIC)
 
 def on_message(client, userdata, msg):
     try:
-        # 1. Ricevi da MQTT
+        # 1. Receive from MQTT
         payload = json.loads(msg.payload.decode())
         
-        # 2. Invia a Kafka (Ingestion)
-        # Qui in un sistema reale contatteremmo lo Schema Registry
+        # 2. Send to Kafka (Ingestion)
+        # Here, in a real system, we would contact the Schema Registry.
         future = producer.send(KAFKA_TOPIC, payload)
-        future.get(timeout=10) # Aspetta conferma (ACK) da Kafka
+        future.get(timeout=10) # Wait for confirmation (ACK) from Kafka
         
-        print(f"➡️ [MQTT -> KAFKA] Spostato pacchetto: {payload['speed_kmh']} km/h")
+        print(f"➡️ [MQTT -> KAFKA] Package moved: {payload['speed_kmh']} km/h")
     except Exception as e:
-        print(f"❌ Errore nel bridging: {e}")
+        print(f"❌ Bridging error: {e}")
 
-# --- AVVIO BRIDGE ---
+# --- BRIDGE START ---
 client = mqtt.Client(client_id="Bridge_Service")
 client.on_connect = on_connect
 client.on_message = on_message

@@ -5,45 +5,45 @@ import os
 from datetime import datetime
 import paho.mqtt.client as mqtt
 
-# --- CONFIGURAZIONE ---
-BROKER_ADDRESS = "localhost"  # Cambia con l'IP di Mosquitto se non è locale
-TOPIC = "raw-traffic"         # Topic dove scrive il gateway (Ingestion Layer)
-SENSOR_ID = "GW-01-S-101"     # ID del sensore/gateway
-COMMAND_FILE = "command.txt"  # File per controllare la simulazione in tempo reale
+# --- CONFIG ---
+BROKER_ADDRESS = "localhost"  # Change to Mosquitto's IP if it is not local
+TOPIC = "raw-traffic"         # Topic where the gateway writes (Ingestion Layer)
+SENSOR_ID = "GW-01-S-101"     # Sensor/gateway ID
+COMMAND_FILE = "command.txt"  # File for controlling the simulation in real time
 
-# --- VARIABILI GLOBALI ---
-buffer = []             # La memoria locale (Buffer)
-is_connected = False    # Stato della connessione
+# --- GLOBAL VARIABLES ---
+buffer = []             # Local memory (Buffer)
+is_connected = False    # Connection status
 
 # --- CALLBACKS MQTT ---
 def on_connect(client, userdata, flags, rc):
     global is_connected
     if rc == 0:
         is_connected = True
-        print(f"✅ [NETWORK] Connesso al Broker MQTT ({BROKER_ADDRESS})")
+        print(f"✅ [NETWORK] Connected to the MQTT Broker ({BROKER_ADDRESS})")
     else:
-        print(f"❌ [NETWORK] Connessione fallita, codice: {rc}")
+        print(f"❌ [NETWORK] Connection failed, code: {rc}")
 
 def on_disconnect(client, userdata, rc):
     global is_connected
     is_connected = False
-    print("⚠️ [NETWORK] Disconnesso dal Broker! Attivazione Buffering locale...")
+    print("⚠️ [NETWORK] Disconnected from Broker! Local Buffering Activation...")
 
 # --- SETUP CLIENT ---
 client = mqtt.Client(client_id="Smart_Gateway_Python")
 client.on_connect = on_connect
 client.on_disconnect = on_disconnect
 
-# Tentativo di connessione iniziale (non bloccante per la demo)
+# Initial connection attempt (non-blocking for the demo)
 try:
     client.connect(BROKER_ADDRESS, 1883)
-    client.loop_start() # Avvia il thread di rete in background
+    client.loop_start() # Start the network thread in the background
 except Exception as e:
-    print(f"⚠️ [STARTUP] Broker non trovato ({e}). Si parte in modalità OFFLINE.")
+    print(f"⚠️ [STARTUP] Broker not found ({e}). Starting in OFFLINE mode.")
 
-# --- FUNZIONI DI UTILITÀ ---
+# --- UTILITY FUNCTIONS ---
 def get_simulation_mode():
-    """Legge il file command.txt per sapere se simulare un incidente"""
+    """Reads the command.txt file to determine whether to simulate an accident."""
     if not os.path.exists(COMMAND_FILE):
         return "NORMAL"
     try:
@@ -52,68 +52,68 @@ def get_simulation_mode():
     except:
         return "NORMAL"
 
-# --- MAIN LOOP (IL CUORE DEL GATEWAY) ---
-print(f"\n🚀 Smart Gateway avviato per Sensore {SENSOR_ID}")
-print(f"📄 Controlla '{COMMAND_FILE}' per cambiare stato (scrivi CRASH o NORMAL)")
+# --- MAIN LOOP (THE HEART OF THE GATEWAY) ---
+print(f"\n🚀 Smart Gateway started for Sensor {SENSOR_ID}")
+print(f"📄 Check '{COMMAND_FILE}' to change status (write CRASH or NORMAL)")
 print("----------------------------------------------------------------\n")
 
 current_speed = 50.0
 
 try:
     while True:
-        # 1. GENERAZIONE DATI (Simulazione Fisica)
+        # 1. DATA GENERATION (Physical Simulation)
         mode = get_simulation_mode()
         
         if mode == "CRASH":
-            # Decelera rapidamente fino a 0
+            # Decelerate rapidly to 0
             current_speed = max(0, current_speed - 15)
             status = "BLOCKED"
         else:
-            # Traffico normale con leggera oscillazione
+            # Normal traffic with slight fluctuations
             current_speed = random.uniform(40.0, 60.0)
             status = "FLOWING"
 
-        # Creazione del pacchetto dati (Payload)
+        # Creation of the data package (Payload)
         payload = {
             "sensor_id": SENSOR_ID,
             "timestamp": datetime.utcnow().isoformat(),
             "location": {"lat": 41.90, "lon": 12.50},
             "speed_kmh": round(current_speed, 2),
             "status": status,
-            "buffered": False # Flag per indicare se è dati live o storico
+            "buffered": False # Flag to indicate whether data is live or historical
         }
         
         json_payload = json.dumps(payload)
 
-        # 2. LOGICA SMART GATEWAY (Resilienza)
+        # 2. SMART GATEWAY LOGIC (Resilience)
         if is_connected:
-            # FASE A: Svuotamento Buffer (Se c'erano dati salvati mentre eravamo offline)
+            # PHASE A: Emptying the Buffer (If there was data saved while we were offline)
             if len(buffer) > 0:
-                print(f"🔄 [RECOVERY] Rinvio {len(buffer)} messaggi bufferizzati al Cloud...")
-                # Inviamo tutti i messaggi accumulati
+                print(f"🔄 [RECOVERY] Sending {len(buffer)} buffered messages to the Cloud...")
+                # We send all accumulated messages
                 for old_msg in buffer:
-                    # Segniamo che questi dati sono "vecchi" ma recuperati
+                    # note that these data are ‘old’ but have been recovered.
                     old_data = json.loads(old_msg)
                     old_data["buffered"] = True 
                     client.publish(TOPIC, json.dumps(old_data))
-                    time.sleep(0.05) # Piccolo delay per non intasare tutto all'istante
+                    time.sleep(0.05) # Small delay to avoid clogging everything up instantly
                 
-                buffer.clear() # Svuota il buffer
-                print("✅ [RECOVERY] Buffer svuotato. Sincronizzazione completata.")
+                buffer.clear() # Clear the buffer
+                print("✅ [RECOVERY] Buffer emptied. Synchronisation complete..")
 
-            # FASE B: Invio Dato Real-Time
+            # PHASE B: Real-Time Data Transmission
             client.publish(TOPIC, json_payload)
-            print(f"📡 [LIVE] Inviato: {payload['speed_kmh']} km/h | Status: {status}")
+            print(f"📡 [LIVE] Sent: {payload['speed_kmh']} km/h | Status: {status}")
         
         else:
-            # FASE C: Modalità Offline (Salvataggio nel Buffer)
+            # PHASE C: Offline Mode (Buffer Saving)
             buffer.append(json_payload)
-            print(f"💾 [BUFFER] Broker Offline. Messaggio salvato localmente. (Size: {len(buffer)})")
+            print(f"💾 [BUFFER] Broker Offline. Message saved locally. (Size: {len(buffer)})")
 
-        # Frequenza di campionamento (1 secondo)
+        # Sampling frequency (1 second)
         time.sleep(1)
 
 except KeyboardInterrupt:
-    print("\n🛑 Gateway arrestato.")
+    print("\n🛑 Gateway arrested.")
     client.loop_stop()
     client.disconnect()

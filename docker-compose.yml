@@ -1,25 +1,25 @@
 version: '3'
 services:
-  # 1. IL BROKER MQTT (Edge Layer)
+  # 1. BROKER MQTT (Edge Layer)
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: mosquitto
     ports:
-      - "1883:1883"     # Porta per il tuo script Python
-      - "9001:9001"     # Porta Web (utile per debug)
+      - "1883:1883"     # Port for Python script
+      - "9001:9001"     # Web port (useful for debugging)
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
     networks:
       - digital-twin-net
 
-  # 2. KAFKA (Ingestion Layer) - Usiamo Redpanda (compatibile Kafka, più leggero)
+  #2. KAFKA (Ingestion Layer) - We use Redpanda (Kafka-compatible, lighter)
   kafka:
     image: docker.io/redpandadata/console:latest
     container_name: kafka-console
     depends_on:
       - redpanda
     ports:
-      - "8080:8080" # UI Web per vedere i messaggi Kafka
+      - "8080:8080" # Web UI for viewing Kafka messages
     environment:
       KAFKA_BROKERS: redpanda:9092
     networks:
@@ -39,19 +39,19 @@ services:
       - --kafka-addr PLAIN://0.0.0.0:9092,OUTSIDE://0.0.0.0:29092
       - --advertise-kafka-addr PLAIN://redpanda:9092,OUTSIDE://localhost:29092
     ports:
-      - "29092:29092" # Porta per connetterci da fuori se serve
+      - "29092:29092" # Door to connect from outside if needed
     networks:
       - digital-twin-net
       
   dashboard:
-    build: ./dashboard      # Costruisce l'immagine dalla cartella dashboard
+    build: ./dashboard      # Builds the image from the dashboard folder
     container_name: dashboard-service
     ports:
-      - "3000:3000"         # Espone la porta Web all'esterno
+      - "3000:3000"         # Exposes the web port externally
     environment:
-      - KAFKA_BROKER=redpanda:9092  # Dice a Node di usare l'indirizzo interno
+      - KAFKA_BROKER=redpanda:9092  # Tells Node to use the internal address
     depends_on:
-      - redpanda            # Aspetta che Kafka sia pronto
+      - redpanda            # Wait for Kafka to be ready
     networks:
       - digital-twin-net
 
