@@ -33,7 +33,7 @@ def on_message(client, userdata, msg):
         # 2. Send to Kafka (Ingestion)
         # Here, in a real system, we would contact the Schema Registry.
         future = producer.send(KAFKA_TOPIC, payload)
-        future.get(timeout=10) # Wait for confirmation (ACK) from Kafka
+        #future.get(timeout=10) # Wait for confirmation (ACK) from Kafka
         
         #commentato per non floodare la console:
         #print(f"➡️ [MQTT -> KAFKA] Package moved: {payload['speed_kmh']} km/h")

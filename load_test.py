@@ -2,77 +2,143 @@
 import time
 import json
 import random
+import os
 import paho.mqtt.client as mqtt
 
 # --- CONFIGURATION ---
-TOTAL_SENSORS = 5000     # Total unique sensors to simulate
-WORKER_THREADS = 50      # Number of real concurrent connections (Batching)
-EVENTS_PER_MIN = 100000  # Target throughput
+TOTAL_SENSORS = 5000     
+WORKER_THREADS = 50      
+EVENTS_PER_MIN = 100000  
 BROKER_ADDRESS = "localhost"
 TOPIC = "raw-traffic"
+COMMAND_FILE = "command.txt"
 
-# Sensors per worker
-SENSORS_PER_WORKER = TOTAL_SENSORS // WORKER_THREADS
+# Physics Constants (Same as smart_gateway.py)
+ACCELERATION_RATE = 3.0   
+DECELERATION_RATE = 8.0   
+BLOCKAGE_THRESHOLD = 5.0  
 
-# Calculate delay
-# We need 100,000 messages per minute total.
-# That is ~1,666 messages per second.
-# With 50 workers, each worker must send ~33 messages per second.
-target_events_per_sec = EVENTS_PER_MIN / 60
-events_per_worker_sec = target_events_per_sec / WORKER_THREADS
-delay_per_worker = 1.0 / events_per_worker_sec
+# Global Command State
+# Format: {"target_id": "GW-BATCH-X", "mode": "CRASH"} or None
+current_command = {"target_id": None, "mode": "NORMAL"}
 
-print(f"🚀 STARTING OPTIMIZED LOAD TEST")
-print(f"🎯 Simulating {TOTAL_SENSORS} Sensors using {WORKER_THREADS} active connections.")
-print(f"⚡ Target Rate: ~{int(target_events_per_sec)} msg/sec total")
-
-def worker_task(worker_id):
-    # Each worker simulates a batch of sensors
-    start_id = worker_id * SENSORS_PER_WORKER
-    end_id = start_id + SENSORS_PER_WORKER
-    my_sensors = [f"GW-BATCH-{i}" for i in range(start_id, end_id)]
+# --- COMMAND LISTENER THREAD ---
+def command_listener():
+    """Reads command.txt every second to update simulation state"""
+    last_known = ""
+    print(f"📄 Listening for commands in '{COMMAND_FILE}'...")
+    print("👉 Format: 'CRASH GW-BATCH-10' or 'NORMAL'")
     
+    while True:
+        try:
+            if os.path.exists(COMMAND_FILE):
+                with open(COMMAND_FILE, "r") as f:
+                    content = f.read().strip()
+                
+                if content != last_known:
+                    parts = content.split()
+                    mode = parts[0].upper()
+                    
+                    if mode == "CRASH" and len(parts) > 1:
+                        target = parts[1]
+                        current_command["target_id"] = target
+                        current_command["mode"] = "CRASH"
+                        print(f"\n⚠️  COMMAND RECEIVED: CRASH target set to {target}")
+                    elif mode == "NORMAL":
+                        current_command["target_id"] = None
+                        current_command["mode"] = "NORMAL"
+                        print(f"\n✅ COMMAND RECEIVED: All systems NORMAL")
+                    
+                    last_known = content
+        except Exception as e:
+            print(f"Command read error: {e}")
+        
+        time.sleep(1)
+
+# --- WORKER THREAD ---
+def worker_task(worker_id):
+    # 1. Setup Sensors
+    sensors_per_worker = TOTAL_SENSORS // WORKER_THREADS
+    start_id = worker_id * sensors_per_worker
+    end_id = start_id + sensors_per_worker
+    
+    # Initialize state for my batch of sensors
+    # sensor_state = { "id": current_speed }
+    sensor_states = {}
+    for i in range(start_id, end_id):
+        s_id = f"GW-BATCH-{i}"
+        sensor_states[s_id] = random.uniform(40.0, 60.0) # Start with random normal speed
+
+    # 2. Setup MQTT
     client = mqtt.Client(client_id=f"LoadWorker-{worker_id}")
     try:
         client.connect(BROKER_ADDRESS, 1883)
-        # We don't need loop_start() if we are just publishing in a loop
-        # But loop_start handles reconnection, so we keep it.
         client.loop_start()
-    except Exception as e:
-        print(f"❌ Worker {worker_id} failed to connect: {e}")
+    except:
         return
 
-    while True:
-        # Pick a random sensor from my batch to simulate
-        # (Or iterate sequentially if you want strict round-robin)
-        current_sensor = random.choice(my_sensors)
+    # 3. Calculate Timing
+    # Target rate: 100k/min total -> ~33 msg/sec per worker
+    target_events_per_sec = EVENTS_PER_MIN / 60
+    events_per_worker_sec = target_events_per_sec / WORKER_THREADS
+    delay = 1.0 / events_per_worker_sec
 
+    while True:
+        # Pick a random sensor to update
+        # (Optimized: We don't update ALL sensors every loop, we pick one randomly 
+        # to simulate the aggregate stream of data)
+        s_id = random.choice(list(sensor_states.keys()))
+        current_speed = sensor_states[s_id]
+        
+        # --- PHYSICS ENGINE ---
+        target_speed = random.uniform(40.0, 60.0) # Default normal flow
+
+        # Check for CRASH command
+        if current_command["mode"] == "CRASH" and current_command["target_id"] == s_id:
+            target_speed = 0.0
+
+        # Apply Acceleration/Deceleration
+        if current_speed > target_speed:
+            current_speed -= DECELERATION_RATE
+            if current_speed < target_speed: current_speed = target_speed
+        elif current_speed < target_speed:
+            current_speed += ACCELERATION_RATE
+            if current_speed > target_speed: current_speed = target_speed
+        
+        current_speed = max(0.0, current_speed)
+        sensor_states[s_id] = current_speed # Update memory
+
+        # Determine Status
+        status = "BLOCKED" if current_speed < BLOCKAGE_THRESHOLD else "FLOWING"
+
+        # --- SEND PAYLOAD ---
         payload = {
-            "sensor_id": current_sensor,
+            "sensor_id": s_id,
             "timestamp": time.time(),
             "location": {"lat": 41.90, "lon": 12.50},
-            "speed_kmh": random.uniform(0, 100),
-            "status": "FLOWING", 
+            "speed_kmh": round(current_speed, 2),
+            "status": status,
             "buffered": False
         }
         
         client.publish(TOPIC, json.dumps(payload))
-        
-        # Wait to match target rate
-        time.sleep(delay_per_worker)
+        time.sleep(delay)
 
-# --- SPAWN WORKERS ---
-threads = []
-print(f"🔥 Spawning {WORKER_THREADS} workers...")
+# --- MAIN ---
+# Start Command Listener
+cmd_thread = threading.Thread(target=command_listener, daemon=True)
+cmd_thread.start()
+
+# Start Workers
+print(f"🚀 STARTING PHYSICS SIMULATION")
+print(f"🎯 Controlling {TOTAL_SENSORS} sensors. Write to 'command.txt' to interact.")
 
 for i in range(WORKER_THREADS):
     t = threading.Thread(target=worker_task, args=(i,))
     t.daemon = True
     t.start()
-    threads.append(t)
-    time.sleep(0.05) # Slight stagger to prevent connection spike
+    time.sleep(0.05)
 
-print("\n✅ Load Generator Running. Press Ctrl+C to stop.")
 try:
     while True: time.sleep(1)
 except KeyboardInterrupt:
