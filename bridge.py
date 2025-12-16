@@ -35,7 +35,8 @@ def on_message(client, userdata, msg):
         future = producer.send(KAFKA_TOPIC, payload)
         future.get(timeout=10) # Wait for confirmation (ACK) from Kafka
         
-        print(f"➡️ [MQTT -> KAFKA] Package moved: {payload['speed_kmh']} km/h")
+        #commentato per non floodare la console:
+        #print(f"➡️ [MQTT -> KAFKA] Package moved: {payload['speed_kmh']} km/h")
     except Exception as e:
         print(f"❌ Bridging error: {e}")
 
