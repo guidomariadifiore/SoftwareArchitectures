@@ -13,91 +13,117 @@ BROKER_ADDRESS = "localhost"
 TOPIC = "raw-traffic"
 COMMAND_FILE = "command.txt"
 
-# Physics Constants (Same as smart_gateway.py)
+# Physics Constants
 ACCELERATION_RATE = 3.0   
 DECELERATION_RATE = 8.0   
 BLOCKAGE_THRESHOLD = 5.0  
 
-# Global Command State
-# Format: {"target_id": "GW-BATCH-X", "mode": "CRASH"} or None
+# Global Shared State
 current_command = {"target_id": None, "mode": "NORMAL"}
+# Track stats: [ { "connected": False, "buffer_size": 0 }, ... ]
+worker_stats = [{"connected": False, "buffer_size": 0} for _ in range(WORKER_THREADS)]
 
-# --- COMMAND LISTENER THREAD ---
-def command_listener():
-    """Reads command.txt every second to update simulation state"""
-    last_known = ""
-    print(f"📄 Listening for commands in '{COMMAND_FILE}'...")
-    print("👉 Format: 'CRASH GW-BATCH-10' or 'NORMAL'")
+# --- MONITORING THREAD (UPDATED FOR VISUALS) ---
+def monitor_system():
+    print(f"📊 MONITOR: Tracking {WORKER_THREADS} workers...")
     
+    last_buffer_total = 0
+    
+    while True:
+        current_buffer_total = sum(w["buffer_size"] for w in worker_stats)
+        active_workers = sum(1 for w in worker_stats if w["connected"])
+        
+        # CASE A: CRITICAL - BUFFERING
+        if current_buffer_total > 0 and current_buffer_total >= last_buffer_total:
+             print(f"⚠️  [NETWORK DOWN] Buffered Events: {current_buffer_total} | Active Workers: {active_workers}/{WORKER_THREADS}")
+        
+        # CASE B: RECOVERY - DRAINING
+        elif current_buffer_total > 0 and current_buffer_total < last_buffer_total:
+            drained = last_buffer_total - current_buffer_total
+            print(f"♻️  [RECOVERING] Flushing Buffer... ({drained} sent now) | Remaining: {current_buffer_total}")
+
+        # CASE C: SUCCESS - JUST FINISHED
+        elif current_buffer_total == 0 and last_buffer_total > 0:
+            print(f"✅ [RECOVERY COMPLETE] All {last_buffer_total} buffered events sent! System Nominal.")
+
+        last_buffer_total = current_buffer_total
+        time.sleep(1)
+
+# --- COMMAND LISTENER ---
+def command_listener():
+    last_known = ""
     while True:
         try:
             if os.path.exists(COMMAND_FILE):
                 with open(COMMAND_FILE, "r") as f:
                     content = f.read().strip()
-                
                 if content != last_known:
                     parts = content.split()
                     mode = parts[0].upper()
-                    
                     if mode == "CRASH" and len(parts) > 1:
-                        target = parts[1]
-                        current_command["target_id"] = target
+                        current_command["target_id"] = parts[1]
                         current_command["mode"] = "CRASH"
-                        print(f"\n⚠️  COMMAND RECEIVED: CRASH target set to {target}")
+                        print(f"\n💥 COMMAND: CRASH {parts[1]}")
                     elif mode == "NORMAL":
                         current_command["target_id"] = None
                         current_command["mode"] = "NORMAL"
-                        print(f"\n✅ COMMAND RECEIVED: All systems NORMAL")
-                    
+                        print(f"\n✅ COMMAND: NORMAL")
                     last_known = content
-        except Exception as e:
-            print(f"Command read error: {e}")
-        
+        except: pass
         time.sleep(1)
 
 # --- WORKER THREAD ---
 def worker_task(worker_id):
-    # 1. Setup Sensors
+    # 1. Local State
     sensors_per_worker = TOTAL_SENSORS // WORKER_THREADS
     start_id = worker_id * sensors_per_worker
     end_id = start_id + sensors_per_worker
     
-    # Initialize state for my batch of sensors
-    # sensor_state = { "id": current_speed }
-    sensor_states = {}
+    my_sensors = {}
     for i in range(start_id, end_id):
-        s_id = f"GW-BATCH-{i}"
-        sensor_states[s_id] = random.uniform(40.0, 60.0) # Start with random normal speed
+        my_sensors[f"GW-BATCH-{i}"] = random.uniform(40.0, 60.0)
 
-    # 2. Setup MQTT
+    local_buffer = []
+    
+    # 2. MQTT Callbacks
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0: 
+            worker_stats[worker_id]["connected"] = True
+            # Debug log only for Worker 0 to avoid spam
+            if worker_id == 0: print(f"⚡ [WORKER 0] Reconnected to Broker!")
+
+    def on_disconnect(client, userdata, rc):
+        worker_stats[worker_id]["connected"] = False
+        if worker_id == 0: print(f"🔌 [WORKER 0] Connection Lost! Code: {rc}")
+
     client = mqtt.Client(client_id=f"LoadWorker-{worker_id}")
+    client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
+    
     try:
-        client.connect(BROKER_ADDRESS, 1883)
+        # keepalive=5 detects failure in 5 seconds instead of 60
+        client.connect(BROKER_ADDRESS, 1883, keepalive=5) 
         client.loop_start()
     except:
-        return
+        return 
 
-    # 3. Calculate Timing
-    # Target rate: 100k/min total -> ~33 msg/sec per worker
+    # 3. Timing
     target_events_per_sec = EVENTS_PER_MIN / 60
     events_per_worker_sec = target_events_per_sec / WORKER_THREADS
     delay = 1.0 / events_per_worker_sec
 
     while True:
-        # Pick a random sensor to update
-        # (Optimized: We don't update ALL sensors every loop, we pick one randomly 
-        # to simulate the aggregate stream of data)
-        s_id = random.choice(list(sensor_states.keys()))
-        current_speed = sensor_states[s_id]
-        
-        # --- PHYSICS ENGINE ---
-        target_speed = random.uniform(40.0, 60.0) # Default normal flow
+        # Stats Update
+        worker_stats[worker_id]["buffer_size"] = len(local_buffer)
 
-        # Check for CRASH command
+        # Simulation Logic
+        s_id = random.choice(list(my_sensors.keys()))
+        current_speed = my_sensors[s_id]
+        
+        target_speed = random.uniform(40.0, 60.0)
         if current_command["mode"] == "CRASH" and current_command["target_id"] == s_id:
             target_speed = 0.0
 
-        # Apply Acceleration/Deceleration
         if current_speed > target_speed:
             current_speed -= DECELERATION_RATE
             if current_speed < target_speed: current_speed = target_speed
@@ -106,12 +132,9 @@ def worker_task(worker_id):
             if current_speed > target_speed: current_speed = target_speed
         
         current_speed = max(0.0, current_speed)
-        sensor_states[s_id] = current_speed # Update memory
-
-        # Determine Status
+        my_sensors[s_id] = current_speed
         status = "BLOCKED" if current_speed < BLOCKAGE_THRESHOLD else "FLOWING"
 
-        # --- SEND PAYLOAD ---
         payload = {
             "sensor_id": s_id,
             "timestamp": time.time(),
@@ -120,24 +143,39 @@ def worker_task(worker_id):
             "status": status,
             "buffered": False
         }
-        
-        client.publish(TOPIC, json.dumps(payload))
+        json_payload = json.dumps(payload)
+
+        # --- RELIABILITY LOGIC ---
+        if worker_stats[worker_id]["connected"]:
+            # PHASE A: Flush Buffer
+            if len(local_buffer) > 0:
+                # Send ALL buffered messages immediately
+                for old_msg in local_buffer:
+                    old_data = json.loads(old_msg)
+                    old_data["buffered"] = True
+                    client.publish(TOPIC, json.dumps(old_data))
+                local_buffer.clear()
+            
+            # PHASE B: Send Live
+            client.publish(TOPIC, json_payload)
+        else:
+            # PHASE C: Buffer
+            local_buffer.append(json_payload)
+
         time.sleep(delay)
 
-# --- MAIN ---
-# Start Command Listener
-cmd_thread = threading.Thread(target=command_listener, daemon=True)
-cmd_thread.start()
+# --- STARTUP ---
+threading.Thread(target=command_listener, daemon=True).start()
+threading.Thread(target=monitor_system, daemon=True).start()
 
-# Start Workers
-print(f"🚀 STARTING PHYSICS SIMULATION")
-print(f"🎯 Controlling {TOTAL_SENSORS} sensors. Write to 'command.txt' to interact.")
+print(f"🚀 RELIABLE LOAD TEST STARTED (Fast-Detect Mode)")
+print(f"🎯 {TOTAL_SENSORS} Sensors | {WORKER_THREADS} Workers")
 
 for i in range(WORKER_THREADS):
     t = threading.Thread(target=worker_task, args=(i,))
     t.daemon = True
     t.start()
-    time.sleep(0.05)
+    time.sleep(0.02)
 
 try:
     while True: time.sleep(1)
