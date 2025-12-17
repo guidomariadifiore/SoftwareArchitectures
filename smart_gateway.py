@@ -8,7 +8,7 @@ import paho.mqtt.client as mqtt
 # --- CONFIGURATION ---
 BROKER_ADDRESS = "localhost"
 TOPIC = "raw-traffic"
-SENSOR_ID = "GW-01-S-101"
+SENSOR_ID = "GW-BATCH-50"
 COMMAND_FILE = "command.txt"
 
 # --- GLOBAL VARIABLES ---
